@@ -173,6 +173,8 @@ jobs:
             # Define app directory
             APP_DIR="/home/${{ secrets.EC2_USER }}/Flask_Authentication_App"
             APP_USER="${{ secrets.EC2_USER }}"
+            echo "📋 App directory: $APP_DIR"
+            echo "📋 App user: $APP_USER"
             
             # Detect OS and update system packages
             echo "📦 Detecting OS and updating system packages..."
@@ -195,16 +197,18 @@ jobs:
                 echo "✅ curl already available"
               fi
               # Check if venv module is available, install virtualenv as fallback if needed
+              echo "🔍 Checking for venv module..."
               set +e
               python3 -m venv --help &> /dev/null
               VENV_CHECK=$?
               set -e
               if [ $VENV_CHECK -ne 0 ]; then
                 echo "⚠️ venv module not available, installing virtualenv via pip..."
-                sudo pip3 install virtualenv || true
+                sudo pip3 install virtualenv || echo "⚠️ virtualenv installation failed, will try later"
               else
                 echo "✅ venv module is available"
               fi
+              echo "✅ Package installation complete"
             elif command -v yum &> /dev/null; then
               # Amazon Linux 1/2 or older RHEL/CentOS (uses yum)
               echo "🔴 Detected Amazon Linux 1/2 or older RHEL/CentOS system (yum)"
@@ -225,10 +229,16 @@ jobs:
             
             # Create app directory structure
             echo "📁 Creating app directory..."
-            mkdir -p $APP_DIR
-            mkdir -p $APP_DIR/templates
-            mkdir -p $APP_DIR/static/files
-            cd $APP_DIR
+            echo "📋 Attempting to create directory: $APP_DIR"
+            # Ensure parent directory exists and has correct permissions
+            sudo mkdir -p $(dirname $APP_DIR) || true
+            sudo mkdir -p $APP_DIR || { echo "❌ Failed to create $APP_DIR"; exit 1; }
+            sudo mkdir -p $APP_DIR/templates || { echo "❌ Failed to create templates directory"; exit 1; }
+            sudo mkdir -p $APP_DIR/static/files || { echo "❌ Failed to create static/files directory"; exit 1; }
+            # Set ownership to the app user
+            sudo chown -R $APP_USER:$APP_USER $APP_DIR || { echo "❌ Failed to set ownership"; exit 1; }
+            cd $APP_DIR || { echo "❌ Failed to cd to $APP_DIR"; exit 1; }
+            echo "✅ Current directory: $(pwd)"
             
             # Create virtual environment if it doesn't exist
             if [ ! -d "venv" ]; then
