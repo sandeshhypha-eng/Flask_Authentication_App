@@ -19,7 +19,6 @@ jobs:
   lint:
     name: 🧹 Code Linting
     runs-on: ubuntu-latest
-
     steps:
       - name: 🧾 Checkout code
         uses: actions/checkout@v4
@@ -47,7 +46,6 @@ jobs:
   test:
     name: 🧪 Run Tests
     runs-on: ubuntu-latest
-
     steps:
       - name: 📦 Checkout code
         uses: actions/checkout@v4
@@ -101,26 +99,13 @@ jobs:
 
       - name: 📦 Create build artifact
         run: |
-          echo "📦 Creating build artifact..."
           mkdir -p build/templates build/static/files
-          
-          # Copy Python files
-          cp main.py build/
-          cp requirements.txt build/
-          
-          # Copy HTML templates
+          cp main.py requirements.txt build/
           cp *.html build/templates/ 2>/dev/null || true
-          
-          # Copy static files
           cp styles.css build/static/ 2>/dev/null || true
           cp cheat_sheet.pdf build/static/files/ 2>/dev/null || true
           cp screenshot.png build/static/ 2>/dev/null || true
-          
-          # Create .gitkeep for empty directories
           touch build/static/.gitkeep
-          
-          echo "📋 Build contents:"
-          find build -type f | sort
           echo "✅ Build artifact ready"
 
       - name: 📤 Upload artifact
@@ -131,10 +116,10 @@ jobs:
           retention-days: 7
 
   ##########################################################
-  # 🚀 4. DEPLOY JOB — automatic EC2 deploy via SSH
+  # 🚀 4. DEPLOY JOB — deploy directly via Gunicorn (no Nginx)
   ##########################################################
   deploy:
-    name: 🚀 Deploy to AWS EC2
+    name: 🚀 Deploy to AWS EC2 (No Nginx)
     runs-on: ubuntu-latest
     needs: [build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -158,7 +143,7 @@ jobs:
           fi
           echo "✅ Artifact verified"
 
-      - name: 🔧 Setup EC2 environment
+      - name: 🔧 Setup EC2 environment (Python only)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -168,35 +153,20 @@ jobs:
           script_stop: true
           script: |
             set -e
-            trap 'echo "❌ Error on line $LINENO"; exit 1' ERR
-            echo "🚀 Starting remote deployment setup..."
-            
+            echo "🚀 Starting remote deployment..."
             APP_DIR="/home/${{ secrets.EC2_USER }}/Flask_Authentication_App"
-            APP_USER="${{ secrets.EC2_USER }}"
-
-            echo "📦 Detected Amazon Linux 2023"
             sudo dnf update -y || true
-            sudo dnf install -y python3 python3-pip nginx git || true
+            sudo dnf install -y python3 python3-pip git || true
+            sudo mkdir -p $APP_DIR
+            sudo chown -R ${{ secrets.EC2_USER }}:$${{ secrets.EC2_USER }} $APP_DIR
 
-            echo "🔍 Checking Python venv availability..."
-            python3 -c "import venv" && echo "✅ venv available" || (echo "⚠️ Installing virtualenv fallback..." && sudo pip3 install virtualenv)
-
-            echo "📁 Preparing app directory..."
-            sudo mkdir -p $APP_DIR/{templates,static/files}
-            sudo chown -R $APP_USER:$APP_USER $APP_DIR
             cd $APP_DIR
-
-            echo "🔍 Checking for virtual environment..."
-            if [ -d "venv" ]; then
-              echo "✅ Virtual environment already exists"
-            else
-              echo "🐍 Creating new virtual environment..."
-              python3 -m venv venv || (echo "⚠️ venv failed, trying virtualenv..." && virtualenv -p python3 venv)
-              echo "✅ Virtual environment created"
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
             fi
-
-            echo "✅ Environment setup complete!"
-
+            source venv/bin/activate
+            pip install --upgrade pip
+            echo "✅ Python environment ready"
 
       - name: 📤 Transfer files to EC2
         uses: appleboy/scp-action@v0.1.7
@@ -209,7 +179,7 @@ jobs:
           target: "/home/${{ secrets.EC2_USER }}/Flask_Authentication_App/"
           strip_components: 1
 
-      - name: 🔐 Deploy and configure services
+      - name: 🧠 Configure and run Flask app service (port 5000)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -220,143 +190,36 @@ jobs:
           script: |
             set -e
             APP_DIR="/home/${{ secrets.EC2_USER }}/Flask_Authentication_App"
-            APP_USER="${{ secrets.EC2_USER }}"
             cd $APP_DIR
-            
-            # Ensure proper permissions
-            echo "🔐 Setting permissions..."
-            sudo chown -R $APP_USER:$APP_USER $APP_DIR
-            chmod +x main.py
-            
-            # Activate venv and install/upgrade dependencies
-            echo "📦 Installing dependencies..."
             source venv/bin/activate
-            pip install --upgrade pip
             pip install -r requirements.txt gunicorn
             
-            # Configure systemd service
-            echo "⚙️ Configuring systemd service..."
-            SERVICE_FILE="/etc/systemd/system/flaskapp.service"
-            sudo tee $SERVICE_FILE > /dev/null << EOF
+            echo "⚙️ Creating systemd service for Flask app (no Nginx)..."
+            sudo tee /etc/systemd/system/flaskapp.service > /dev/null << EOF
             [Unit]
             Description=Flask Authentication App
             After=network.target
-            
+
             [Service]
-            User=$APP_USER
-            Group=$APP_USER
+            User=${{ secrets.EC2_USER }}
             WorkingDirectory=$APP_DIR
             Environment="PATH=$APP_DIR/venv/bin"
-            Environment="PYTHONUNBUFFERED=1"
-            ExecStart=$APP_DIR/venv/bin/gunicorn \\
-                --workers 4 \\
-                --bind 0.0.0.0:5000 \\
-                --timeout 120 \\
-                --access-logfile - \\
-                --error-logfile - \\
-                main:app
+            ExecStart=$APP_DIR/venv/bin/gunicorn --workers 4 --bind 0.0.0.0:5000 main:app
             Restart=always
-            RestartSec=10
-            
+            RestartSec=5
+
             [Install]
             WantedBy=multi-user.target
             EOF
-            
-            # Reload systemd and enable service
+
             sudo systemctl daemon-reload
             sudo systemctl enable flaskapp
-            
-            # Configure Nginx reverse proxy
-            echo "🌐 Configuring Nginx..."
-            # Detect nginx configuration style (Ubuntu/Debian vs Amazon Linux/RHEL)
-            if [ -d "/etc/nginx/sites-available" ]; then
-              # Ubuntu/Debian style
-              echo "📋 Using Ubuntu/Debian nginx configuration style"
-              NGINX_FILE="/etc/nginx/sites-available/flaskapp"
-              sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-              sudo tee $NGINX_FILE > /dev/null << EOF
-            server {
-                listen 80;
-                server_name _;
-                
-                client_max_body_size 10M;
-                
-                location / {
-                    proxy_pass http://127.0.0.1:5000;
-                    proxy_set_header Host \$host;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto \$scheme;
-                    proxy_connect_timeout 60s;
-                    proxy_send_timeout 60s;
-                    proxy_read_timeout 60s;
-                }
-                
-                location /static {
-                    alias $APP_DIR/static;
-                    expires 30d;
-                    add_header Cache-Control "public, immutable";
-                }
-            }
-            EOF
-              # Enable Nginx site
-              sudo rm -f /etc/nginx/sites-enabled/default
-              sudo ln -sf /etc/nginx/sites-available/flaskapp /etc/nginx/sites-enabled/
-            else
-              # Amazon Linux/RHEL style (uses conf.d)
-              echo "📋 Using Amazon Linux/RHEL nginx configuration style"
-              NGINX_FILE="/etc/nginx/conf.d/flaskapp.conf"
-              sudo mkdir -p /etc/nginx/conf.d
-              sudo tee $NGINX_FILE > /dev/null << EOF
-            server {
-                listen 80;
-                server_name _;
-                
-                client_max_body_size 10M;
-                
-                location / {
-                    proxy_pass http://127.0.0.1:5000;
-                    proxy_set_header Host \$host;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto \$scheme;
-                    proxy_connect_timeout 60s;
-                    proxy_send_timeout 60s;
-                    proxy_read_timeout 60s;
-                }
-                
-                location /static {
-                    alias $APP_DIR/static;
-                    expires 30d;
-                    add_header Cache-Control "public, immutable";
-                }
-            }
-            EOF
-            fi
-            
-            # Test nginx configuration
-            sudo nginx -t
-            
-            # Restart services
-            echo "🔄 Restarting services..."
-            sudo systemctl restart nginx
             sudo systemctl restart flaskapp
-            
-            # Wait and check service status
-            sleep 3
-            if sudo systemctl is-active --quiet flaskapp; then
-              echo "✅ Flask app service is running"
-              sudo systemctl status flaskapp --no-pager -l || true
-            else
-              echo "❌ Flask app service failed to start"
-              sudo systemctl status flaskapp --no-pager -l
-              exit 1
-            fi
-            
-            echo "✅ Deployment successful!"
+
+            echo "✅ Flask app deployed successfully on port 5000!"
 
   ##########################################################
-  # 🔍 5. VERIFY JOB — ensure app is running
+  # 🔍 5. VERIFY JOB — check if port 5000 is reachable
   ##########################################################
   verify:
     name: 🔍 Post-Deploy Verification
@@ -365,24 +228,18 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: 🌍 Health Check
+      - name: 🌍 Health Check (port 5000)
         run: |
-          echo "🔍 Checking if Flask app is live..."
+          echo "🔍 Checking Flask app on port 5000..."
           sleep 10
-          
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/ | grep -q "200\|302\|301"; then
-              echo "✅ App is reachable and responding!"
+          for i in {1..5}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}:5000/)
+            if [[ "$STATUS" =~ ^(200|301|302)$ ]]; then
+              echo "✅ Flask app is live and responding (HTTP $STATUS)"
               exit 0
             fi
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            echo "⏳ Attempt $RETRY_COUNT/$MAX_RETRIES failed, retrying in 5 seconds..."
+            echo "⏳ Attempt $i failed (status: $STATUS). Retrying..."
             sleep 5
           done
-          
-          echo "❌ App not reachable after $MAX_RETRIES attempts"
+          echo "❌ App not reachable on port 5000 after multiple retries"
           exit 1
-
