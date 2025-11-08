@@ -121,10 +121,7 @@ jobs:
   deploy:
     name: 🚀 Deploy to AWS EC2 (No Nginx)
     runs-on: ubuntu-latest
-    needs: [build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment:
-      name: production
+    needs: build
 
     steps:
       - name: 📥 Download build artifact
