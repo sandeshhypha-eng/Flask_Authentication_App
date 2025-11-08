@@ -186,16 +186,40 @@ jobs:
             elif command -v dnf &> /dev/null; then
               # Amazon Linux 2023/Fedora/newer RHEL (uses dnf)
               echo "🔴 Detected Amazon Linux 2023/Fedora/RHEL system (dnf)"
+              set +e
               sudo dnf update -y
+              UPDATE_STATUS=$?
+              set -e
+              if [ $UPDATE_STATUS -ne 0 ]; then
+                echo "⚠️ dnf update had issues, but continuing..."
+              fi
+              
               # Install packages, curl is optional (curl-minimal may already be installed)
               # Note: python3-venv package doesn't exist on Amazon Linux 2023, venv is included with python3
-              sudo dnf install -y python3 python3-pip nginx git || true
+              echo "📦 Installing required packages..."
+              set +e
+              sudo dnf install -y python3 python3-pip nginx git
+              INSTALL_STATUS=$?
+              set -e
+              if [ $INSTALL_STATUS -ne 0 ]; then
+                echo "⚠️ Some packages may not have installed, but continuing..."
+              else
+                echo "✅ Required packages installed"
+              fi
+              
               # Try to install curl only if not already available
               if ! command -v curl &> /dev/null; then
-                sudo dnf install -y curl || echo "⚠️ curl not installed (curl-minimal may be sufficient)"
+                set +e
+                sudo dnf install -y curl
+                CURL_STATUS=$?
+                set -e
+                if [ $CURL_STATUS -ne 0 ]; then
+                  echo "⚠️ curl not installed (curl-minimal may be sufficient)"
+                fi
               else
                 echo "✅ curl already available"
               fi
+              
               # Check if venv module is available, install virtualenv as fallback if needed
               echo "🔍 Checking for venv module..."
               set +e
@@ -204,7 +228,10 @@ jobs:
               set -e
               if [ $VENV_CHECK -ne 0 ]; then
                 echo "⚠️ venv module not available, installing virtualenv via pip..."
-                sudo pip3 install virtualenv || echo "⚠️ virtualenv installation failed, will try later"
+                set +e
+                sudo pip3 install virtualenv
+                set -e
+                echo "⚠️ virtualenv installation attempted"
               else
                 echo "✅ venv module is available"
               fi
