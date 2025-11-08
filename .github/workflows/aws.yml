@@ -174,10 +174,30 @@ jobs:
             APP_DIR="/home/${{ secrets.EC2_USER }}/Flask_Authentication_App"
             APP_USER="${{ secrets.EC2_USER }}"
             
-            # Update system packages
-            echo "📦 Updating system packages..."
-            sudo apt-get update -y
-            sudo apt-get install -y python3 python3-venv python3-pip nginx git curl
+            # Detect OS and update system packages
+            echo "📦 Detecting OS and updating system packages..."
+            if command -v apt-get &> /dev/null; then
+              # Ubuntu/Debian
+              echo "🐧 Detected Debian/Ubuntu system"
+              sudo apt-get update -y
+              sudo apt-get install -y python3 python3-venv python3-pip nginx git curl
+            elif command -v yum &> /dev/null; then
+              # Amazon Linux/RHEL/CentOS
+              echo "🔴 Detected Amazon Linux/RHEL/CentOS system"
+              sudo yum update -y
+              sudo yum install -y python3 python3-pip nginx git curl
+              # Install venv module separately for Amazon Linux
+              sudo pip3 install virtualenv || true
+            elif command -v dnf &> /dev/null; then
+              # Fedora/newer RHEL
+              echo "🔵 Detected Fedora/RHEL system"
+              sudo dnf update -y
+              sudo dnf install -y python3 python3-pip nginx git curl
+              sudo pip3 install virtualenv || true
+            else
+              echo "❌ Unsupported package manager. Please install manually."
+              exit 1
+            fi
             
             # Create app directory structure
             echo "📁 Creating app directory..."
@@ -189,7 +209,16 @@ jobs:
             # Create virtual environment if it doesn't exist
             if [ ! -d "venv" ]; then
               echo "🐍 Creating virtual environment..."
-              python3 -m venv venv
+              # Try python3 -m venv first, fallback to virtualenv
+              if python3 -m venv venv 2>/dev/null; then
+                echo "✅ Virtual environment created with venv"
+              elif command -v virtualenv &> /dev/null; then
+                virtualenv -p python3 venv
+                echo "✅ Virtual environment created with virtualenv"
+              else
+                echo "❌ Failed to create virtual environment"
+                exit 1
+              fi
             fi
             
             echo "✅ Environment setup complete!"
