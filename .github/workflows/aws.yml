@@ -186,15 +186,23 @@ jobs:
               echo "🔴 Detected Amazon Linux 2023/Fedora/RHEL system (dnf)"
               sudo dnf update -y
               # Install packages, curl is optional (curl-minimal may already be installed)
-              sudo dnf install -y python3 python3-pip nginx git || true
+              # Try to install python3-venv package first (provides venv module)
+              sudo dnf install -y python3 python3-pip python3-venv nginx git || true
               # Try to install curl only if not already available
               if ! command -v curl &> /dev/null; then
                 sudo dnf install -y curl || echo "⚠️ curl not installed (curl-minimal may be sufficient)"
               else
                 echo "✅ curl already available"
               fi
-              # Install venv module separately
-              sudo pip3 install virtualenv || true
+              # Install virtualenv as fallback if python3-venv not available
+              set +e
+              python3 -m venv --help &> /dev/null
+              VENV_CHECK=$?
+              set -e
+              if [ $VENV_CHECK -ne 0 ]; then
+                echo "⚠️ python3-venv not available, installing virtualenv via pip..."
+                sudo pip3 install virtualenv || true
+              fi
             elif command -v yum &> /dev/null; then
               # Amazon Linux 1/2 or older RHEL/CentOS (uses yum)
               echo "🔴 Detected Amazon Linux 1/2 or older RHEL/CentOS system (yum)"
@@ -223,16 +231,43 @@ jobs:
             # Create virtual environment if it doesn't exist
             if [ ! -d "venv" ]; then
               echo "🐍 Creating virtual environment..."
-              # Try python3 -m venv first, fallback to virtualenv
-              if python3 -m venv venv 2>/dev/null; then
+              # Try python3 -m venv first (disable set -e for this section)
+              set +e
+              python3 -m venv venv
+              VENV_STATUS=$?
+              set -e
+              
+              if [ $VENV_STATUS -eq 0 ]; then
                 echo "✅ Virtual environment created with venv"
-              elif command -v virtualenv &> /dev/null; then
-                virtualenv -p python3 venv
-                echo "✅ Virtual environment created with virtualenv"
               else
-                echo "❌ Failed to create virtual environment"
-                exit 1
+                echo "⚠️ venv module not available, trying virtualenv..."
+                # Install virtualenv if not available
+                set +e
+                if ! command -v virtualenv &> /dev/null; then
+                  echo "📦 Installing virtualenv..."
+                  pip3 install --user virtualenv 2>/dev/null || sudo pip3 install virtualenv 2>/dev/null || true
+                fi
+                set -e
+                
+                # Try virtualenv if available
+                if command -v virtualenv &> /dev/null; then
+                  set +e
+                  virtualenv -p python3 venv
+                  VIRTUALENV_STATUS=$?
+                  set -e
+                  if [ $VIRTUALENV_STATUS -eq 0 ]; then
+                    echo "✅ Virtual environment created with virtualenv"
+                  else
+                    echo "❌ virtualenv command failed"
+                    exit 1
+                  fi
+                else
+                  echo "❌ Failed to create virtual environment - both venv and virtualenv unavailable"
+                  exit 1
+                fi
               fi
+            else
+              echo "✅ Virtual environment already exists"
             fi
             
             echo "✅ Environment setup complete!"
