@@ -140,7 +140,6 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: production
-      url: http://${{ secrets.EC2_HOST }}
 
     steps:
       - name: 📥 Download build artifact
@@ -316,7 +315,7 @@ jobs:
             echo "✅ Deployment successful!"
 
   ##########################################################
-  # 🔍 5. VERIFY JOB — ensure app is running#
+  # 🔍 5. VERIFY JOB — ensure app is running
   ##########################################################
   verify:
     name: 🔍 Post-Deploy Verification
@@ -345,7 +344,4 @@ jobs:
           
           echo "❌ App not reachable after $MAX_RETRIES attempts"
           exit 1
-
-
-
 
