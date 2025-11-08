@@ -186,22 +186,24 @@ jobs:
               echo "🔴 Detected Amazon Linux 2023/Fedora/RHEL system (dnf)"
               sudo dnf update -y
               # Install packages, curl is optional (curl-minimal may already be installed)
-              # Try to install python3-venv package first (provides venv module)
-              sudo dnf install -y python3 python3-pip python3-venv nginx git || true
+              # Note: python3-venv package doesn't exist on Amazon Linux 2023, venv is included with python3
+              sudo dnf install -y python3 python3-pip nginx git || true
               # Try to install curl only if not already available
               if ! command -v curl &> /dev/null; then
                 sudo dnf install -y curl || echo "⚠️ curl not installed (curl-minimal may be sufficient)"
               else
                 echo "✅ curl already available"
               fi
-              # Install virtualenv as fallback if python3-venv not available
+              # Check if venv module is available, install virtualenv as fallback if needed
               set +e
               python3 -m venv --help &> /dev/null
               VENV_CHECK=$?
               set -e
               if [ $VENV_CHECK -ne 0 ]; then
-                echo "⚠️ python3-venv not available, installing virtualenv via pip..."
+                echo "⚠️ venv module not available, installing virtualenv via pip..."
                 sudo pip3 install virtualenv || true
+              else
+                echo "✅ venv module is available"
               fi
             elif command -v yum &> /dev/null; then
               # Amazon Linux 1/2 or older RHEL/CentOS (uses yum)
@@ -223,7 +225,7 @@ jobs:
             
             # Create app directory structure
             echo "📁 Creating app directory..."
-            mkdir -p $APP_DIR
+            mkdir -p $APP_DIRcxcxc
             mkdir -p $APP_DIR/templates
             mkdir -p $APP_DIR/static/files
             cd $APP_DIR
