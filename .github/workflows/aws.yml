@@ -181,18 +181,32 @@ jobs:
               echo "🐧 Detected Debian/Ubuntu system"
               sudo apt-get update -y
               sudo apt-get install -y python3 python3-venv python3-pip nginx git curl
-            elif command -v yum &> /dev/null; then
-              # Amazon Linux/RHEL/CentOS
-              echo "🔴 Detected Amazon Linux/RHEL/CentOS system"
-              sudo yum update -y
-              sudo yum install -y python3 python3-pip nginx git curl
-              # Install venv module separately for Amazon Linux
-              sudo pip3 install virtualenv || true
             elif command -v dnf &> /dev/null; then
-              # Fedora/newer RHEL
-              echo "🔵 Detected Fedora/RHEL system"
+              # Amazon Linux 2023/Fedora/newer RHEL (uses dnf)
+              echo "🔴 Detected Amazon Linux 2023/Fedora/RHEL system (dnf)"
               sudo dnf update -y
-              sudo dnf install -y python3 python3-pip nginx git curl
+              # Install packages, curl is optional (curl-minimal may already be installed)
+              sudo dnf install -y python3 python3-pip nginx git || true
+              # Try to install curl only if not already available
+              if ! command -v curl &> /dev/null; then
+                sudo dnf install -y curl || echo "⚠️ curl not installed (curl-minimal may be sufficient)"
+              else
+                echo "✅ curl already available"
+              fi
+              # Install venv module separately
+              sudo pip3 install virtualenv || true
+            elif command -v yum &> /dev/null; then
+              # Amazon Linux 1/2 or older RHEL/CentOS (uses yum)
+              echo "🔴 Detected Amazon Linux 1/2 or older RHEL/CentOS system (yum)"
+              sudo yum update -y
+              sudo yum install -y python3 python3-pip nginx git || true
+              # Try to install curl only if not already available
+              if ! command -v curl &> /dev/null; then
+                sudo yum install -y curl || echo "⚠️ curl not installed (curl-minimal may be sufficient)"
+              else
+                echo "✅ curl already available"
+              fi
+              # Install venv module separately for Amazon Linux
               sudo pip3 install virtualenv || true
             else
               echo "❌ Unsupported package manager. Please install manually."
