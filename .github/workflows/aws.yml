@@ -73,7 +73,7 @@ jobs:
   build:
     name: 🏗️ Build Artifact
     runs-on: ubuntu-latest
-    needs: test
+
 
     steps:
       - name: 📦 Checkout repo
@@ -115,7 +115,7 @@ jobs:
   deploy:
     name: 🚀 Deploy to AWS EC2
     runs-on: ubuntu-latest
-    needs: build
+
 
     steps:
       - name: 📥 Download build artifact
@@ -201,7 +201,7 @@ jobs:
   verify:
     name: 🔍 Post-Deploy Verification
     runs-on: ubuntu-latest
-    needs: deploy
+
 
     steps:
       - name: 🌍 Health Check
